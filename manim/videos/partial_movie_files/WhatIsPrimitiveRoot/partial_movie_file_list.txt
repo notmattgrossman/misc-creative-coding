@@ -1,0 +1,11 @@
+# This file is used internally by FFMPEG.
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3529212410_4222240583_223132457.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_3890345977_2977109046.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_3065980531_1072493886.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_2751012852_4131132508.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_3890345977_3740778694.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_1692286030_362542200.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_876290408_758497372.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_675193207_1752272236.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_3890345977_2276852543.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/WhatIsPrimitiveRoot/3040924799_2536323392_2478991944.mp4'

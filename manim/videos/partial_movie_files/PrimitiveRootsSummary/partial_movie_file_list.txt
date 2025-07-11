@@ -1,0 +1,6 @@
+# This file is used internally by FFMPEG.
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/PrimitiveRootsSummary/3529212410_1148397102_223132457.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/PrimitiveRootsSummary/3040924799_2354374403_404638390.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/PrimitiveRootsSummary/3040924799_2018333063_1611590192.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/PrimitiveRootsSummary/3040924799_2354374403_1473939951.mp4'
+file 'file:/Users/matthewgrossman/Desktop/manim/videos/partial_movie_files/PrimitiveRootsSummary/3040924799_1684443169_340570503.mp4'

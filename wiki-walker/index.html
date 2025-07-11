@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual Wiki Walker</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Basic styles for the body and overall layout */
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars from appearing */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+        }
+
+        /* Container for the search bar and button */
+        #search-container {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 8px 15px;
+            border-radius: 999px; /* Pill shape */
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        #search-container:focus-within {
+            box-shadow: 0 8px 40px rgba(102, 126, 234, 0.4);
+            transform: translateX(-50%) translateY(-2px);
+        }
+
+        /* Styling for the search input field */
+        #search-input {
+            border: none;
+            outline: none;
+            padding: 10px;
+            font-size: 16px;
+            width: 300px;
+            background: transparent;
+        }
+
+        /* Styling for the search button */
+        #search-button {
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-left: 8px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        #search-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        /* Loading indicator styles */
+        #loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            display: none; /* Hidden by default */
+            font-size: 20px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+
+        /* SVG container where the visualization is rendered */
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Styles for the graph elements */
+        .node rect {
+            stroke: rgba(255, 255, 255, 0.8);
+            stroke-width: 2px;
+            transition: all 0.3s ease;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+        }
+
+        .node:hover rect {
+            transform: scale(1.05);
+            filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.3));
+        }
+        
+        .node text {
+            pointer-events: none;
+            font-size: 12px;
+            font-weight: 500;
+            fill: #fff;
+            text-anchor: middle;
+            dominant-baseline: central;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .link {
+            stroke: rgba(255, 255, 255, 0.6);
+            stroke-opacity: 0.7;
+            stroke-width: 2px;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+        }
+        
+        /* Tooltip for displaying full node titles */
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-radius: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 30;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="search-container">
+        <input type="text" id="search-input" placeholder="Start with a Wikipedia topic...">
+        <button id="search-button">Walk</button>
+    </div>
+    
+    <div id="loader">Loading...</div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <svg></svg>
+
+    <script>
+        // --- D3 Setup ---
+        const svg = d3.select("svg");
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        svg.attr("width", width).attr("height", height);
+
+        // Define gradients
+        const defs = svg.append("defs");
+        
+        const rootGradient = defs.append("linearGradient")
+            .attr("id", "rootGradient")
+            .attr("x1", "0%").attr("y1", "0%")
+            .attr("x2", "100%").attr("y2", "100%");
+        rootGradient.append("stop").attr("offset", "0%").attr("stop-color", "#667eea");
+        rootGradient.append("stop").attr("offset", "100%").attr("stop-color", "#764ba2");
+
+        const nodeGradient = defs.append("linearGradient")
+            .attr("id", "nodeGradient")
+            .attr("x1", "0%").attr("y1", "0%")
+            .attr("x2", "100%").attr("y2", "100%");
+        nodeGradient.append("stop").attr("offset", "0%").attr("stop-color", "#4facfe");
+        nodeGradient.append("stop").attr("offset", "100%").attr("stop-color", "#00f2fe");
+
+        const hoverGradient = defs.append("linearGradient")
+            .attr("id", "hoverGradient")
+            .attr("x1", "0%").attr("y1", "0%")
+            .attr("x2", "100%").attr("y2", "100%");
+        hoverGradient.append("stop").attr("offset", "0%").attr("stop-color", "#ff6b6b");
+        hoverGradient.append("stop").attr("offset", "100%").attr("stop-color", "#ee5a24");
+
+        const simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(d => d.id).distance(100).strength(0.3))
+            .force("charge", d3.forceManyBody().strength(-150))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collision", d3.forceCollide().radius(d => d.isRoot ? 50 : 30).strength(0.8))
+            .velocityDecay(0.9)
+            .alphaDecay(0.1)
+            .alphaMin(0.01)
+            .stop();
+
+        let link = svg.append("g").attr("class", "links").selectAll(".link");
+        let node = svg.append("g").attr("class", "nodes").selectAll(".node");
+        
+        const tooltip = d3.select("#tooltip");
+        const loader = document.getElementById('loader');
+
+        // Function to calculate text dimensions
+        function getTextDimensions(text, fontSize = 12, fontWeight = 500) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = `${fontWeight} ${fontSize}px Inter`;
+            const metrics = context.measureText(text);
+            return {
+                width: metrics.width,
+                height: fontSize
+            };
+        }
+
+        // Function to wrap text
+        function wrapText(text, maxWidth) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = words[0];
+
+            for (let i = 1; i < words.length; i++) {
+                const testLine = currentLine + ' ' + words[i];
+                const testDimensions = getTextDimensions(testLine);
+                if (testDimensions.width > maxWidth) {
+                    lines.push(currentLine);
+                    currentLine = words[i];
+                } else {
+                    currentLine = testLine;
+                }
+            }
+            lines.push(currentLine);
+            return lines;
+        }
+
+        // --- Wikipedia API Fetching ---
+        async function fetchWikiLinks(title) {
+            const endpoint = `https://en.wikipedia.org/w/api.php?action=query&format=json&titles=${encodeURIComponent(title)}&prop=links&pllimit=20&origin=*`;
+            try {
+                const response = await fetch(endpoint);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const data = await response.json();
+                const pages = data.query.pages;
+                const pageId = Object.keys(pages)[0];
+
+                if (pageId === "-1") {
+                    alert(`Article "${title}" not found.`);
+                    return null;
+                }
+                
+                // Only get the first 20 links for better performance
+                let links = pages[pageId].links || [];
+
+                // Filter out non-article links and limit to 15 for performance
+                return links
+                    .map(link => link.title)
+                    .filter(t => !t.includes(':'))
+                    .slice(0, 15);
+
+            } catch (error) {
+                console.error("Error fetching Wikipedia links:", error);
+                alert("Failed to fetch data from Wikipedia.");
+                return null;
+            }
+        }
+
+        // --- Graph Update Function ---
+        async function update(rootTitle) {
+            loader.style.display = 'block';
+            svg.style("opacity", 0.5);
+
+            const links = await fetchWikiLinks(rootTitle);
+            
+            loader.style.display = 'none';
+            svg.style("opacity", 1);
+
+            if (links === null) return;
+
+            // Create nodes and links data structure
+            const nodes = [{ id: rootTitle, isRoot: true }].concat(links.map(link => ({ id: link, isRoot: false })));
+            
+            // Calculate dimensions for each node
+            nodes.forEach(node => {
+                const maxWidth = node.isRoot ? 200 : 120;
+                const fontSize = node.isRoot ? 14 : 12;
+                const lines = wrapText(node.id, maxWidth - 20);
+                const textDimensions = getTextDimensions(lines[0], fontSize);
+                
+                node.width = Math.max(textDimensions.width + 30, node.isRoot ? 100 : 60);
+                node.height = (lines.length * (fontSize + 4)) + 20;
+                node.lines = lines;
+                node.fontSize = fontSize;
+            });
+            
+            const edges = links.map(link => ({ source: rootTitle, target: link }));
+
+            // --- D3 Data Binding ---
+            // Bind new data to links
+            link = svg.select(".links").selectAll(".link")
+                .data(edges, d => d.target);
+
+            link.exit().transition().duration(300).attr("stroke-opacity", 0).remove();
+            link = link.enter().append("line")
+                .attr("class", "link")
+                .merge(link);
+
+            // Bind new data to nodes
+            node = svg.select(".nodes").selectAll(".node")
+                .data(nodes, d => d.id);
+
+            node.exit().transition().duration(300).attr("opacity", 0).remove();
+
+            const nodeEnter = node.enter().append("g")
+                .attr("class", "node")
+                .attr("opacity", 0)
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            nodeEnter.append("rect")
+                .attr("width", d => d.width)
+                .attr("height", d => d.height)
+                .attr("x", d => -d.width / 2)
+                .attr("y", d => -d.height / 2)
+                .attr("rx", 12)
+                .attr("ry", 12)
+                .attr("fill", d => d.isRoot ? "url(#rootGradient)" : "url(#nodeGradient)");
+                
+            // Add text lines
+            nodeEnter.each(function(d) {
+                const nodeGroup = d3.select(this);
+                d.lines.forEach((line, i) => {
+                    nodeGroup.append("text")
+                        .attr("x", 0)
+                        .attr("y", (i - (d.lines.length - 1) / 2) * (d.fontSize + 4))
+                        .attr("font-size", d.fontSize)
+                        .attr("font-weight", d.isRoot ? 600 : 500)
+                        .text(line);
+                });
+            });
+
+            // Add click and hover events
+            nodeEnter.on("click", (event, d) => {
+                if (!d.isRoot) {
+                    update(d.id);
+                }
+            }).on("mouseover", (event, d) => {
+                d3.select(event.currentTarget).select("rect")
+                    .transition().duration(200)
+                    .attr("fill", "url(#hoverGradient)");
+                    
+                tooltip.style("opacity", 1)
+                       .html(d.id)
+                       .style("left", (event.pageX + 10) + "px")
+                       .style("top", (event.pageY - 28) + "px");
+            }).on("mouseout", (event, d) => {
+                d3.select(event.currentTarget).select("rect")
+                    .transition().duration(200)
+                    .attr("fill", d.isRoot ? "url(#rootGradient)" : "url(#nodeGradient)");
+                    
+                tooltip.style("opacity", 0);
+            });
+            
+            node = nodeEnter.merge(node);
+            
+            // Re-style the root node in case it was a child before
+            node.select("rect")
+                .transition().duration(500)
+                .attr("width", d => d.width)
+                .attr("height", d => d.height)
+                .attr("x", d => -d.width / 2)
+                .attr("y", d => -d.height / 2)
+                .attr("rx", 12)
+                .attr("ry", 12)
+                .attr("fill", d => d.isRoot ? "url(#rootGradient)" : "url(#nodeGradient)");
+
+            // Update text for existing nodes
+            node.selectAll("text").remove();
+            node.each(function(d) {
+                const nodeGroup = d3.select(this);
+                d.lines.forEach((line, i) => {
+                    nodeGroup.append("text")
+                        .attr("x", 0)
+                        .attr("y", (i - (d.lines.length - 1) / 2) * (d.fontSize + 4))
+                        .attr("font-size", d.fontSize)
+                        .attr("font-weight", d.isRoot ? 600 : 500)
+                        .text(line);
+                });
+            });
+
+            node.transition().duration(500).attr("opacity", 1);
+
+            // --- Restart Simulation ---
+            simulation.nodes(nodes).on("tick", ticked);
+            simulation.force("link").links(edges);
+            simulation.force("collision").radius(d => Math.max(d.width, d.height) / 2 + 5);
+            
+            // Run simulation for limited iterations to prevent lag
+            simulation.alpha(0.2).restart();
+            
+            // Auto-stop after a few seconds to prevent endless movement
+            setTimeout(() => {
+                simulation.stop();
+            }, 2000);
+
+            function ticked() {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node
+                    .attr("transform", d => `translate(${d.x},${d.y})`);
+            }
+        }
+        
+        // --- Drag Functions ---
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.05).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        // --- Event Listeners ---
+        document.getElementById('search-button').addEventListener('click', () => {
+            const topic = document.getElementById('search-input').value;
+            if (topic) {
+                update(topic);
+            }
+        });
+        
+        document.getElementById('search-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const topic = document.getElementById('search-input').value;
+                if (topic) {
+                    update(topic);
+                }
+            }
+        });
+        
+        // Handle window resizing
+        window.addEventListener('resize', () => {
+            svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
+            simulation.force("center", d3.forceCenter(window.innerWidth / 2, window.innerHeight / 2));
+            simulation.alpha(0.3).restart();
+        });
+
+    </script>
+</body>
+</html>
