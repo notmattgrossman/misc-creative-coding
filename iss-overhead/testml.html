@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Advanced Predictive Drawing App</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      display: block;
+      cursor: crosshair;
+    }
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      z-index: 100;
+    }
+    .control {
+      margin: 5px 0;
+    }
+    label {
+      color: #00ff88;
+    }
+    input[type="range"] {
+      width: 150px;
+    }
+  </style>
+</head>
+<body>
+<div class="controls">
+  <div class="control">
+    <label for="predictionLength">Prediction Length: <span id="predictionLengthValue">10</span></label>
+    <input type="range" id="predictionLength" min="3" max="30" value="10">
+  </div>
+  <div class="control">
+    <label for="historyWindow">History Window: <span id="historyWindowValue">8</span></label>
+    <input type="range" id="historyWindow" min="3" max="20" value="8">
+  </div>
+  <div class="control">
+    <label for="smoothing">Smoothing: <span id="smoothingValue">0.3</span></label>
+    <input type="range" id="smoothing" min="0" max="1" step="0.1" value="0.3">
+  </div>
+</div>
+
+<canvas id="canvas"></canvas>
+<script>
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  let drawing = false;
+  let points = [];
+  let lastPrediction = [];
+  
+  // Controls
+  const predictionLengthSlider = document.getElementById("predictionLength");
+  const historyWindowSlider = document.getElementById("historyWindow");
+  const smoothingSlider = document.getElementById("smoothing");
+  
+  predictionLengthSlider.addEventListener("input", (e) => {
+    document.getElementById("predictionLengthValue").textContent = e.target.value;
+    // If currently drawing, update prediction immediately
+    if (drawing && points.length > 3) {
+      const predictionSteps = parseInt(e.target.value);
+      const prediction = predictFuturePath(points, predictionSteps);
+      clearPrediction();
+      drawPrediction(prediction);
+      lastPrediction = prediction;
+    }
+  });
+  
+  historyWindowSlider.addEventListener("input", (e) => {
+    document.getElementById("historyWindowValue").textContent = e.target.value;
+    // If currently drawing, update prediction immediately
+    if (drawing && points.length > 3) {
+      const predictionSteps = parseInt(predictionLengthSlider.value);
+      const prediction = predictFuturePath(points, predictionSteps);
+      clearPrediction();
+      drawPrediction(prediction);
+      lastPrediction = prediction;
+    }
+  });
+  
+  smoothingSlider.addEventListener("input", (e) => {
+    document.getElementById("smoothingValue").textContent = e.target.value;
+    // If currently drawing, update prediction immediately
+    if (drawing && points.length > 3) {
+      const predictionSteps = parseInt(predictionLengthSlider.value);
+      const prediction = predictFuturePath(points, predictionSteps);
+      clearPrediction();
+      drawPrediction(prediction);
+      lastPrediction = prediction;
+    }
+  });
+
+  // Utility functions
+  function calculateCurvature(p1, p2, p3) {
+    // Calculate curvature using three consecutive points
+    const v1 = [p2[0] - p1[0], p2[1] - p1[1]];
+    const v2 = [p3[0] - p2[0], p3[1] - p2[1]];
+    
+    // Cross product for 2D vectors (gives signed area)
+    // This determines the direction of curvature (left/right turn)
+    const cross = v1[0] * v2[1] - v1[1] * v2[0];
+    
+    // Magnitudes
+    const mag1 = Math.sqrt(v1[0] * v1[0] + v1[1] * v1[1]);
+    const mag2 = Math.sqrt(v2[0] * v2[0] + v2[1] * v2[1]);
+    
+    if (mag1 === 0 || mag2 === 0) return 0;
+    
+    // Curvature formula - keeping the sign for direction
+    const avgMag = (mag1 + mag2) / 2;
+    const curvature = cross / (avgMag * avgMag * avgMag);
+    
+    // Return the signed curvature (positive = left turn, negative = right turn)
+    return curvature;
+  }
+
+  function getRecentCurvatures(points, window = 5) {
+    const curvatures = [];
+    const startIdx = Math.max(0, points.length - window);
+    
+    for (let i = startIdx; i < points.length - 2; i++) {
+      const curvature = calculateCurvature(points[i], points[i + 1], points[i + 2]);
+      curvatures.push(curvature);
+    }
+    
+    return curvatures;
+  }
+
+  function catmullRomSpline(p0, p1, p2, p3, t) {
+    // Catmull-Rom spline for smooth curve interpolation
+    const t2 = t * t;
+    const t3 = t2 * t;
+    
+    const x = 0.5 * (
+      (2 * p1[0]) +
+      (-p0[0] + p2[0]) * t +
+      (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+      (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
+    );
+    
+    const y = 0.5 * (
+      (2 * p1[1]) +
+      (-p0[1] + p2[1]) * t +
+      (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+      (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
+    );
+    
+    return [x, y];
+  }
+
+  function polynomialFit(points, degree = 2) {
+    if (points.length < degree + 1) return null;
+    
+    // Simple polynomial fitting for x and y separately
+    const n = points.length;
+    const x = points.map((_, i) => i);
+    const yValues = points.map(p => p[1]);
+    const xValues = points.map(p => p[0]);
+    
+    // Linear trend for simplicity (can be extended to higher order)
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    let sumXx = 0, sumXx2 = 0, sumXxX = 0;
+    
+    for (let i = 0; i < n; i++) {
+      sumX += i;
+      sumY += yValues[i];
+      sumXY += i * yValues[i];
+      sumX2 += i * i;
+      
+      sumXx += xValues[i];
+      sumXxX += i * xValues[i];
+      sumXx2 += i * i;
+    }
+    
+    const slopeY = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const interceptY = (sumY - slopeY * sumX) / n;
+    
+    const slopeX = (n * sumXxX - sumX * sumXx) / (n * sumX2 - sumX * sumX);
+    const interceptX = (sumXx - slopeX * sumX) / n;
+    
+    return { slopeX, interceptX, slopeY, interceptY };
+  }
+
+  function analyzeGlobalTrend(points, window) {
+    if (points.length < 4) return null;
+    
+    const analysisPoints = points.slice(-Math.min(window, points.length));
+    if (analysisPoints.length < 4) return null;
+    
+    // Calculate overall direction trend
+    const firstPoint = analysisPoints[0];
+    const lastPoint = analysisPoints[analysisPoints.length - 1];
+    const globalDirection = [
+      lastPoint[0] - firstPoint[0],
+      lastPoint[1] - firstPoint[1]
+    ];
+    
+    // Calculate path length and straightness
+    let totalLength = 0;
+    for (let i = 1; i < analysisPoints.length; i++) {
+      const dx = analysisPoints[i][0] - analysisPoints[i-1][0];
+      const dy = analysisPoints[i][1] - analysisPoints[i-1][1];
+      totalLength += Math.sqrt(dx * dx + dy * dy);
+    }
+    
+    const directLength = Math.sqrt(globalDirection[0] * globalDirection[0] + globalDirection[1] * globalDirection[1]);
+    const straightness = directLength > 0 ? directLength / totalLength : 0;
+    
+    // Enhanced curvature analysis - more sensitive to curves
+    const curvatures = [];
+    const recentCurvatures = []; // Last few points for immediate direction
+    for (let i = 1; i < analysisPoints.length - 1; i++) {
+      const curvature = calculateCurvature(analysisPoints[i-1], analysisPoints[i], analysisPoints[i+1]);
+      curvatures.push(curvature);
+      
+      // Store recent curvatures (last 30% of points)
+      if (i >= analysisPoints.length * 0.7) {
+        recentCurvatures.push(curvature);
+      }
+    }
+    
+    // Calculate both overall and recent curvature trends
+    const avgCurvature = curvatures.length > 0 ? 
+      curvatures.reduce((sum, c) => sum + c, 0) / curvatures.length : 0;
+    
+    const recentAvgCurvature = recentCurvatures.length > 0 ?
+      recentCurvatures.reduce((sum, c) => sum + c, 0) / recentCurvatures.length : avgCurvature;
+    
+    const curvatureVariance = curvatures.length > 0 ?
+      curvatures.reduce((sum, c) => sum + Math.pow(c - avgCurvature, 2), 0) / curvatures.length : 0;
+    
+    // Analyze curvature trend (is it increasing/decreasing?)
+    let curvatureTrend = 0;
+    if (curvatures.length > 4) {
+      const firstHalf = curvatures.slice(0, Math.floor(curvatures.length / 2));
+      const secondHalf = curvatures.slice(Math.floor(curvatures.length / 2));
+      
+      const firstAvg = firstHalf.reduce((sum, c) => sum + Math.abs(c), 0) / firstHalf.length;
+      const secondAvg = secondHalf.reduce((sum, c) => sum + Math.abs(c), 0) / secondHalf.length;
+      
+      curvatureTrend = secondAvg - firstAvg; // Positive = getting more curved
+    }
+    
+    // Calculate average step size (spatial, not temporal)
+    const stepSizes = [];
+    for (let i = 1; i < analysisPoints.length; i++) {
+      const dx = analysisPoints[i][0] - analysisPoints[i-1][0];
+      const dy = analysisPoints[i][1] - analysisPoints[i-1][1];
+      stepSizes.push(Math.sqrt(dx * dx + dy * dy));
+    }
+    
+    const avgStepSize = stepSizes.length > 0 ? 
+      stepSizes.reduce((sum, s) => sum + s, 0) / stepSizes.length : 1;
+    
+    // Enhanced spiral/loop detection
+    let spiralFactor = 0;
+    let loopFactor = 0;
+    if (analysisPoints.length > 6) {
+      const center = analysisPoints.reduce((sum, p) => [sum[0] + p[0], sum[1] + p[1]], [0, 0]);
+      center[0] /= analysisPoints.length;
+      center[1] /= analysisPoints.length;
+      
+      const angles = analysisPoints.map(p => Math.atan2(p[1] - center[1], p[0] - center[0]));
+      let totalAngleChange = 0;
+      const angleChanges = [];
+      
+      for (let i = 1; i < angles.length; i++) {
+        let angleDiff = angles[i] - angles[i-1];
+        if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+        totalAngleChange += angleDiff;
+        angleChanges.push(angleDiff);
+      }
+      
+      spiralFactor = Math.abs(totalAngleChange) / (2 * Math.PI);
+      
+      // Detect consistent turning direction (loops)
+      const positiveChanges = angleChanges.filter(a => a > 0).length;
+      const negativeChanges = angleChanges.filter(a => a < 0).length;
+      const consistency = Math.abs(positiveChanges - negativeChanges) / angleChanges.length;
+      loopFactor = consistency * spiralFactor;
+    }
+    
+    return {
+      globalDirection,
+      straightness,
+      avgCurvature,
+      recentAvgCurvature,
+      curvatureVariance,
+      curvatureTrend,
+      avgStepSize,
+      spiralFactor,
+      loopFactor,
+      pathLength: totalLength,
+      analysisPoints: analysisPoints.length
+    };
+  }
+
+  function predictFuturePath(points, steps) {
+    if (points.length < 3) return [];
+    
+    const historyWindow = parseInt(historyWindowSlider.value);
+    const smoothingFactor = parseFloat(smoothingSlider.value);
+    
+    // Analyze the entire line within history window
+    const globalAnalysis = analyzeGlobalTrend(points, historyWindow);
+    
+    // Use recent history for immediate prediction
+    const recentPoints = points.slice(-Math.min(historyWindow, points.length));
+    
+    if (recentPoints.length < 3) return [];
+    
+    // Calculate local curvature trend with higher sensitivity
+    const curvatures = getRecentCurvatures(recentPoints, Math.min(6, recentPoints.length));
+    let localCurvature = 0;
+    if (curvatures.length > 0) {
+      localCurvature = curvatures.reduce((sum, c) => sum + c, 0) / curvatures.length;
+    }
+    
+    // Blend local and global curvature - favor local for curved paths
+    let blendedCurvature = localCurvature;
+    if (globalAnalysis) {
+      // For curved paths (low straightness), use more local curvature
+      const localWeight = Math.max(0.7, 1 - globalAnalysis.straightness);
+      blendedCurvature = localCurvature * localWeight + globalAnalysis.recentAvgCurvature * (1 - localWeight);
+      
+      // If curvature is increasing, amplify it
+      if (globalAnalysis.curvatureTrend > 0) {
+        blendedCurvature *= (1 + globalAnalysis.curvatureTrend * 2);
+      }
+    }
+    
+    // Generate prediction points with enhanced curve sensitivity
+    const prediction = [];
+    const lastPoint = recentPoints[recentPoints.length - 1];
+    
+    // Calculate initial direction from the last few points
+    let initialDirection = [1, 0]; // Default direction
+    if (recentPoints.length >= 2) {
+      const p1 = recentPoints[recentPoints.length - 2];
+      const p2 = recentPoints[recentPoints.length - 1];
+      const dx = p2[0] - p1[0];
+      const dy = p2[1] - p1[1];
+      const length = Math.sqrt(dx * dx + dy * dy);
+      if (length > 0) {
+        initialDirection = [dx / length, dy / length];
+      }
+    }
+    
+    let predCurvature = blendedCurvature;
+    let currentDirection = [...initialDirection];
+    let currentPos = [...lastPoint];
+    
+    // Use average step size from analysis for consistent spacing
+    const stepSize = globalAnalysis ? globalAnalysis.avgStepSize * smoothingFactor : 5;
+    
+    // Global pattern influences
+    let globalDirectionInfluence = [0, 0];
+    let spiralInfluence = 0;
+    let loopInfluence = 0;
+    
+    if (globalAnalysis) {
+      // Normalize global direction
+      const globalLength = Math.sqrt(
+        globalAnalysis.globalDirection[0] * globalAnalysis.globalDirection[0] + 
+        globalAnalysis.globalDirection[1] * globalAnalysis.globalDirection[1]
+      );
+      if (globalLength > 0) {
+        globalDirectionInfluence = [
+          globalAnalysis.globalDirection[0] / globalLength,
+          globalAnalysis.globalDirection[1] / globalLength
+        ];
+      }
+      
+      spiralInfluence = globalAnalysis.spiralFactor;
+      loopInfluence = globalAnalysis.loopFactor;
+    }
+    
+    // Temporal blending with previous prediction (reduced)
+    const blendWithPrevious = lastPrediction.length > 0 && lastPrediction.length >= steps;
+    const temporalBlend = 0.15; // Reduced further since no temporal smoothing
+    
+    for (let i = 0; i < steps; i++) {
+      const stepRatio = i / steps;
+      
+      // Less aggressive decay for curved paths
+      const curvatureDecay = Math.pow(0.92, stepRatio);
+      
+      // Enhanced curvature application
+      if (Math.abs(predCurvature) > 0.0001) {
+        const currentAngle = Math.atan2(currentDirection[1], currentDirection[0]);
+        
+        // Apply curvature in the correct direction (inverted)
+        const curvatureEffect = -predCurvature * smoothingFactor * 0.15 * curvatureDecay;
+        const newAngle = currentAngle + curvatureEffect;
+        
+        // Update direction based on curvature
+        const newDirection = [Math.cos(newAngle), Math.sin(newAngle)];
+        
+        // Blend with current direction
+        const blendFactor = Math.min(0.8, Math.abs(predCurvature) * 15) * curvatureDecay;
+        currentDirection[0] = currentDirection[0] * (1 - blendFactor) + newDirection[0] * blendFactor;
+        currentDirection[1] = currentDirection[1] * (1 - blendFactor) + newDirection[1] * blendFactor;
+      }
+      
+      // Apply global pattern influences
+      if (globalAnalysis) {
+        // Loop continuation - much stronger influence
+        if (loopInfluence > 0.3) {
+          const currentAngle = Math.atan2(currentDirection[1], currentDirection[0]);
+          // Invert the loop direction to match the curvature fix
+          const loopAngleChange = -loopInfluence * 0.4 * smoothingFactor;
+          const newAngle = currentAngle + loopAngleChange;
+          
+          const loopWeight = Math.min(0.6, loopInfluence * 1.5);
+          const loopDirection = [Math.cos(newAngle), Math.sin(newAngle)];
+          currentDirection[0] = currentDirection[0] * (1 - loopWeight) + loopDirection[0] * loopWeight;
+          currentDirection[1] = currentDirection[1] * (1 - loopWeight) + loopDirection[1] * loopWeight;
+        }
+        
+        // Global direction influence (reduced for curved paths)
+        const globalInfluence = globalAnalysis.straightness * 0.05 * (1 - stepRatio * 0.8);
+        currentDirection[0] += globalDirectionInfluence[0] * globalInfluence;
+        currentDirection[1] += globalDirectionInfluence[1] * globalInfluence;
+      }
+      
+      // Normalize direction
+      const dirLength = Math.sqrt(currentDirection[0] * currentDirection[0] + currentDirection[1] * currentDirection[1]);
+      if (dirLength > 0) {
+        currentDirection[0] /= dirLength;
+        currentDirection[1] /= dirLength;
+      }
+      
+      // Move in the current direction
+      currentPos[0] += currentDirection[0] * stepSize;
+      currentPos[1] += currentDirection[1] * stepSize;
+      
+      // Less aggressive decay
+      predCurvature *= 0.96;
+      
+      let finalPos = [...currentPos];
+      
+      // Reduced temporal blending for more responsiveness
+      if (blendWithPrevious && i < lastPrediction.length) {
+        const prevPos = lastPrediction[i];
+        const blendWeight = temporalBlend * (1 - stepRatio * 0.8);
+        
+        finalPos[0] = finalPos[0] * (1 - blendWeight) + prevPos[0] * blendWeight;
+        finalPos[1] = finalPos[1] * (1 - blendWeight) + prevPos[1] * blendWeight;
+      }
+      
+      // Reduced spline influence for better curve responsiveness
+      if (recentPoints.length >= 4 && i < 2) {
+        const splinePoints = recentPoints.slice(-4);
+        const t = (i + 1) * 0.25;
+        const splinePos = catmullRomSpline(
+          splinePoints[0], splinePoints[1], splinePoints[2], splinePoints[3], t
+        );
+        
+        const splineWeight = (1 - stepRatio) * 0.2;
+        finalPos[0] = finalPos[0] * (1 - splineWeight) + splinePos[0] * splineWeight;
+        finalPos[1] = finalPos[1] * (1 - splineWeight) + splinePos[1] * splineWeight;
+      }
+      
+      prediction.push(finalPos);
+    }
+    
+    return prediction;
+  }
+
+  function clearPrediction() {
+    // Redraw everything to clear old predictions
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Redraw the actual path
+    if (points.length > 1) {
+      ctx.strokeStyle = "#00ff88";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.setLineDash([]);
+      
+      ctx.beginPath();
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i][0], points[i][1]);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function drawPrediction(prediction) {
+    if (prediction.length === 0) return;
+    
+    const lastActualPoint = points[points.length - 1];
+    
+    // Draw prediction with gradient opacity
+    for (let i = 0; i < prediction.length - 1; i++) {
+      const opacity = 1 - (i / prediction.length) * 0.8; // Fade out over distance
+      const hue = 300 + (i / prediction.length) * 60; // Color shift from magenta to red
+      
+      ctx.strokeStyle = `hsla(${hue}, 100%, 50%, ${opacity})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      
+      ctx.beginPath();
+      if (i === 0) {
+        ctx.moveTo(lastActualPoint[0], lastActualPoint[1]);
+      } else {
+        ctx.moveTo(prediction[i-1][0], prediction[i-1][1]);
+      }
+      ctx.lineTo(prediction[i][0], prediction[i][1]);
+      ctx.stroke();
+    }
+    
+    // Draw prediction points
+    for (let i = 0; i < prediction.length; i += 3) {
+      const opacity = 1 - (i / prediction.length) * 0.7;
+      ctx.fillStyle = `rgba(255, 100, 100, ${opacity})`;
+      ctx.beginPath();
+      ctx.arc(prediction[i][0], prediction[i][1], 2, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    
+    ctx.setLineDash([]);
+  }
+
+  canvas.addEventListener("mousedown", (e) => {
+    drawing = true;
+    points = [[e.clientX, e.clientY]];
+    lastPrediction = [];
+  });
+
+  canvas.addEventListener("mouseup", () => {
+    drawing = false;
+    clearPrediction();
+  });
+
+  canvas.addEventListener("mousemove", (e) => {
+    if (!drawing) return;
+
+    const [x, y] = [e.clientX, e.clientY];
+    const currentPoint = [x, y];
+    points.push(currentPoint);
+
+    // Clear and redraw everything
+    clearPrediction();
+
+    // Predict future path
+    const predictionSteps = parseInt(predictionLengthSlider.value);
+    const prediction = predictFuturePath(points, predictionSteps);
+    
+    // Draw prediction
+    drawPrediction(prediction);
+    
+    lastPrediction = prediction;
+  });
+
+  window.addEventListener("resize", () => {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    ctx.putImageData(imageData, 0, 0);
+  });
+</script>
+</body>
+</html>
