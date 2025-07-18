@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SF Muni - Chinatown Station</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="station-info">
+                <div class="station-icon">
+                    <i class="fas fa-subway"></i>
+                </div>
+                <div class="station-details">
+                    <h1 class="station-name">Chinatown - Rose Pak Station</h1>
+                    <p class="station-description">San Francisco Municipal Railway</p>
+                    <span class="stop-id">Stop ID: 17876</span>
+                </div>
+            </div>
+            <div class="refresh-section">
+                <button id="refreshBtn" class="refresh-btn" onclick="fetchPredictions()">
+                    <i class="fas fa-sync-alt"></i>
+                    Refresh
+                </button>
+                <div class="last-updated">
+                    <span id="lastUpdated">Loading...</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="arrivals-section">
+                <h2 class="section-title">
+                    <i class="fas fa-clock"></i>
+                    Real-time Arrivals
+                </h2>
+                
+                <div id="loadingIndicator" class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Fetching real-time data...</p>
+                </div>
+
+                <div id="arrivalsContainer" class="arrivals-container" style="display: none;">
+                    <!-- Dynamic content will be inserted here -->
+                </div>
+
+                <div id="errorContainer" class="error-container" style="display: none;">
+                    <div class="error-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <h3>Unable to load arrival times</h3>
+                    <p id="errorMessage">Please check your connection and try again.</p>
+                    <button onclick="fetchPredictions()" class="retry-btn">
+                        <i class="fas fa-redo"></i>
+                        Try Again
+                    </button>
+                </div>
+            </div>
+
+            <div class="info-section">
+                <div class="info-card">
+                    <h3><i class="fas fa-info-circle"></i> Station Information</h3>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Location:</span>
+                            <span class="info-value">Chinatown, San Francisco</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Coordinates:</span>
+                            <span class="info-value">37.7948, -122.4081</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Routes Served:</span>
+                            <span class="info-value">T-Third Street</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-card">
+                    <h3><i class="fas fa-route"></i> About T-Third Street</h3>
+                    <p>The T-Third Street line connects downtown San Francisco to the southeastern neighborhoods, running from Chinatown through SOMA, Mission Bay, and continuing to Sunnydale.</p>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2025 SF Muni Real-time Data. Data provided by SFMTA.</p>
+            <p class="disclaimer">Predictions are estimates and may vary due to traffic conditions.</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html> 
